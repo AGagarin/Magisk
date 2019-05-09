@@ -58,7 +58,7 @@ public class Const {
 
     public static class Url {
         private static String getRaw(String where, String name) {
-            return String.format("https://raw.githubusercontent.com/topjohnwu/magisk_files/%s/%s", where, name);
+            return String.format("https://raw.githubusercontent.com/AGagarin/magisk_files/%s/%s", where, name);
         }
         public static final String STABLE_URL = getRaw("master", "stable.json");
         public static final String BETA_URL = getRaw("master", "beta.json");
