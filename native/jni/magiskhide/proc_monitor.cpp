@@ -1,12 +1,3 @@
-/* proc_monitor.cpp - Monitor am_proc_start events and unmount
- *
- * We monitor the listed APK files from /data/app until they get opened
- * via inotify to detect a new app launch.
- *
- * If it's a target we pause it ASAP, and fork a new process to join
- * its mount namespace and do all the unmounting/mocking.
- */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -79,19 +70,15 @@ static int parse_ppid(int pid) {
 	return ppid;
 }
 
-static long xptrace(bool log, int request, pid_t pid, void *addr, void *data) {
+static inline long xptrace(int request, pid_t pid, void *addr, void *data) {
 	long ret = ptrace(request, pid, addr, data);
-	if (log && ret == -1)
+	if (ret < 0)
 		PLOGE("ptrace %d", pid);
 	return ret;
 }
 
-static long xptrace(int request, pid_t pid, void *addr, void *data) {
-	return xptrace(true, request, pid, addr, data);
-}
-
-static long xptrace(int request, pid_t pid, void *addr = nullptr, intptr_t data = 0) {
-	return xptrace(true, request, pid, addr, reinterpret_cast<void *>(data));
+static inline long xptrace(int request, pid_t pid, void *addr = nullptr, intptr_t data = 0) {
+	return xptrace(request, pid, addr, reinterpret_cast<void *>(data));
 }
 
 static bool parse_packages_xml(string_view s) {
@@ -188,9 +175,6 @@ static void setup_inotify() {
 	} else {
 		inotify_add_watch(inotify_fd, APP_PROC, IN_ACCESS);
 	}
-
-	// First find existing zygotes
-	check_zygote();
 }
 
 /*************************
@@ -266,6 +250,7 @@ static void inotify_event(int) {
 		uid_proc_map.clear();
 		file_readline("/data/system/packages.xml", parse_packages_xml, true);
 	} else if (event->mask & IN_ACCESS) {
+		LOGD("proc_monitor: app_process access\n");
 		check_zygote();
 	}
 }
@@ -291,7 +276,7 @@ static void term_thread(int) {
  * Ptrace Madness
  ******************/
 
-/* Ptrace is super tricky, preserve all excessive debug in code
+/* Ptrace is super tricky, preserve all excessive logging in code
  * but disable when actually building for usage (you won't want
  * your logcat spammed with new thread events from all apps) */
 
@@ -371,20 +356,24 @@ static bool check_pid(int pid) {
 			}
 		}
 	}
-	PTRACE_LOG("not our target\n");
+	PTRACE_LOG("[%s] not our target\n", cmdline);
 	detach_pid(pid);
 	return true;
 }
 
 static void new_zygote(int pid) {
-	if (zygote_map.count(pid))
-		return;
-
-	LOGD("proc_monitor: ptrace zygote PID=[%d]\n", pid);
-
 	struct stat st;
 	if (read_ns(pid, &st))
 		return;
+
+	auto it = zygote_map.find(pid);
+	if (it != zygote_map.end()) {
+		// Update namespace info
+		it->second = st;
+		return;
+	}
+
+	LOGD("proc_monitor: ptrace zygote PID=[%d]\n", pid);
 	zygote_map[pid] = st;
 
 	xptrace(PTRACE_ATTACH, pid);
@@ -414,12 +403,26 @@ void proc_monitor() {
 
 	setup_inotify();
 
+	// First find existing zygotes
+	check_zygote();
+
 	int status;
 
 	for (;;) {
 		const int pid = waitpid(-1, &status, __WALL | __WNOTHREAD);
-		if (pid < 0)
+		if (pid < 0) {
+			if (errno == ECHILD) {
+				/* This mean we have nothing to wait, sleep
+				 * and wait till signal interruption */
+				LOGD("proc_monitor: nothing to monitor, wait for signal\n");
+				struct timespec timespec = {
+					.tv_sec = INT_MAX,
+					.tv_nsec = 0
+				};
+				nanosleep(&timespec, nullptr);
+			}
 			continue;
+		}
 		bool detach = false;
 		RunFinally detach_task([&]() -> void {
 			if (detach) {
