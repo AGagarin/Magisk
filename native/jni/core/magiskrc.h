@@ -51,7 +51,7 @@ constexpr const char magiskrc[] =
 "    write /config/usb_gadget/g1/idProduct 0x9091\n"
 "    write /config/usb_gadget/g1/os_desc/use 1\n"
 "    symlink /config/usb_gadget/g1/functions/diag.diag /config/usb_gadget/g1/configs/b.1/function0\n"
-"    symlink /config/usb_gadget/g1/functions/cser.dun.0 /config/usb_gadget/g1/configs/b.1/functio1\n"
+"    symlink /config/usb_gadget/g1/functions/cser.dun.0 /config/usb_gadget/g1/configs/b.1/function1\n"
 "    symlink /config/usb_gadget/g1/functions/gsi.rmnet /config/usb_gadget/g1/configs/b.1/function2\n"
 "    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/function3\n"
 "    write /config/usb_gadget/g1/UDC ${sys.usb.controller}\n"
